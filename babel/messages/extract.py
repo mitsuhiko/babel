@@ -134,16 +134,28 @@ def extract_from_dir(dirname=None, method_map=DEFAULT_MAPPING,
     if options_map is None:
         options_map = {}
 
-    absname = os.path.abspath(dirname)
-    for root, dirnames, filenames in os.walk(absname):
-        dirnames[:] = [
-            subdir for subdir in dirnames
-            if not (subdir.startswith('.') or subdir.startswith('_'))
-        ]
+    rootdir = os.path.abspath(dirname)
+
+    def dir_filter(method_map, dirpath, dirname):
+        if dirname.startswith('.') or dirname.startswith('_'):
+            return False
+
+        dir_abs = os.path.join(dirpath, dirname).replace(os.sep, '/')
+        dir_rel = relpath(dir_abs, rootdir)
+
+        for pattern, method in method_map:
+            if method == "ignore" and pathmatch(pattern, dir_rel):
+                return False
+
+        return True
+
+    for dirpath, dirnames, filenames in os.walk(rootdir):
+        dirnames[:] = [dirname for dirname in dirnames if dir_filter(method_map, dirpath, dirname)]
+
         dirnames.sort()
         filenames.sort()
         for filename in filenames:
-            filepath = os.path.join(root, filename).replace(os.sep, '/')
+            filepath = os.path.join(dirpath, filename).replace(os.sep, '/')
 
             for message_tuple in check_and_call_extract_file(
                 filepath,
@@ -153,7 +165,7 @@ def extract_from_dir(dirname=None, method_map=DEFAULT_MAPPING,
                 keywords,
                 comment_tags,
                 strip_comment_tags,
-                dirpath=absname,
+                dirpath=rootdir,
             ):
                 yield message_tuple
 
