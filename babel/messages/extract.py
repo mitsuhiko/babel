@@ -111,10 +111,25 @@ def _strip_comment_tags(comments: MutableSequence[str], tags: Iterable[str]):
     comments[:] = map(_strip, comments)
 
 
-def default_directory_filter(dirpath: str | os.PathLike[str]) -> bool:
-    subdir = os.path.basename(dirpath)
-    # Legacy default behavior: ignore dot and underscore directories
-    return not (subdir.startswith('.') or subdir.startswith('_'))
+def make_default_directory_filter(
+    method_map: Iterable[tuple[str, str]],
+    root_dir: str | os.PathLike[str],
+):
+    def directory_filter(dirpath: str | os.PathLike[str]) -> bool:
+        subdir = os.path.basename(dirpath)
+        # Legacy default behavior: ignore dot and underscore directories
+        if subdir.startswith('.') or subdir.startswith('_'):
+            return False
+
+        dir_rel = os.path.relpath(dirpath, root_dir).replace(os.sep, '/')
+
+        for pattern, method in method_map:
+            if method == "ignore" and pathmatch(pattern, dir_rel):
+                return False
+
+        return True
+
+    return directory_filter
 
 
 def extract_from_dir(
@@ -198,13 +213,19 @@ def extract_from_dir(
     """
     if dirname is None:
         dirname = os.getcwd()
+
     if options_map is None:
         options_map = {}
-    if directory_filter is None:
-        directory_filter = default_directory_filter
 
-    absname = os.path.abspath(dirname)
-    for root, dirnames, filenames in os.walk(absname):
+    dirname = os.path.abspath(dirname)
+
+    if directory_filter is None:
+        directory_filter = make_default_directory_filter(
+            method_map=method_map,
+            root_dir=dirname,
+        )
+
+    for root, dirnames, filenames in os.walk(dirname):
         dirnames[:] = [
             subdir for subdir in dirnames
             if directory_filter(os.path.join(root, subdir))
@@ -222,7 +243,7 @@ def extract_from_dir(
                 keywords,
                 comment_tags,
                 strip_comment_tags,
-                dirpath=absname,
+                dirpath=dirname,
             )
 
 
