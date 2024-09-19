@@ -97,10 +97,10 @@ add_notice(req, ngettext("Bar deleted.",
         messages = list(extract.extract_python(buf, ('ngettext', '_'), ['NOTE:'],
 
                                                {'strip_comment_tags': False}))
-        assert messages[0] == (3, 'ngettext', ('Catalog deleted.', 'Catalogs deleted.', None), ['NOTE: This Comment SHOULD Be Extracted'])
+        assert messages[0] == (2, 'ngettext', ('Catalog deleted.', 'Catalogs deleted.', None), ['NOTE: This Comment SHOULD Be Extracted'])
         assert messages[1] == (6, '_', 'Locale deleted.', ['NOTE: This Comment SHOULD Be Extracted'])
         assert messages[2] == (10, 'ngettext', ('Foo deleted.', 'Foos deleted.', None), ['NOTE: This Comment SHOULD Be Extracted'])
-        assert messages[3] == (15, 'ngettext', ('Bar deleted.', 'Bars deleted.', None), ['NOTE: This Comment SHOULD Be Extracted', 'NOTE: And This One Too'])
+        assert messages[3] == (14, 'ngettext', ('Bar deleted.', 'Bars deleted.', None), ['NOTE: This Comment SHOULD Be Extracted', 'NOTE: And This One Too'])
 
     def test_declarations(self):
         buf = BytesIO(b"""\
@@ -422,24 +422,44 @@ _(u'Hello, {name1} and {name2}!', name1=_(u'Heungsub'),
 # NOTE: Third
 _(u'Hello, {0} and {1}!', _(u'Heungsub'),
   _(u'Armin'))
+
+# NOTE: Fourth
+_("Hello %(person)", person=random_function(_("Person")))
+
+# NOTE: Fifth
+_("Hello %(people)",
+    person=random_function(
+        ", ".join([_("Person 1"), _("Person 2")])
+    )
+)
 """)
         messages = list(extract.extract_python(buf, ('_',), ['NOTE:'], {}))
-        assert messages[0][2] == ('Hello, {name}!', None)
+        assert messages[0][2] == 'Foo Bar'
         assert messages[0][3] == ['NOTE: First']
-        assert messages[1][2] == 'Foo Bar'
-        assert messages[1][3] == []
-        assert messages[2][2] == ('Hello, {name1} and {name2}!', None)
+        assert messages[1][2] == ('Hello, {name}!', None)
+        assert messages[1][3] == ['NOTE: First']
+        assert messages[2][2] == 'Heungsub'
         assert messages[2][3] == ['NOTE: Second']
-        assert messages[3][2] == 'Heungsub'
+        assert messages[3][2] == 'Armin'
         assert messages[3][3] == []
-        assert messages[4][2] == 'Armin'
-        assert messages[4][3] == []
-        assert messages[5][2] == ('Hello, {0} and {1}!', None)
+        assert messages[4][2] == ('Hello, {name1} and {name2}!', None, None)
+        assert messages[4][3] == ['NOTE: Second']
+        assert messages[5][2] == 'Heungsub'
         assert messages[5][3] == ['NOTE: Third']
-        assert messages[6][2] == 'Heungsub'
+        assert messages[6][2] == 'Armin'
         assert messages[6][3] == []
-        assert messages[7][2] == 'Armin'
-        assert messages[7][3] == []
+        assert messages[7][2] == ('Hello, {0} and {1}!', None, None)
+        assert messages[7][3] == ['NOTE: Third']
+        assert messages[8][2] == 'Person'
+        assert messages[8][3] == ['NOTE: Fourth']
+        assert messages[9][2] == ('Hello %(person)', None)
+        assert messages[9][3] == ['NOTE: Fourth']
+        assert messages[10][2] == 'Person 1'
+        assert messages[10][3] == []
+        assert messages[11][2] == 'Person 2'
+        assert messages[11][3] == []
+        assert messages[12][2] == ('Hello %(people)', None)
+        assert messages[12][3] == ['NOTE: Fifth']
 
 
 class ExtractTestCase(unittest.TestCase):
