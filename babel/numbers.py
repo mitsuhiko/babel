@@ -7,7 +7,7 @@
     The default locale for the functions in this module is determined by the
     following environment variables, in that order:
 
-     * ``LC_NUMERIC``,
+     * ``LC_NUMERIC`` or ``LC_MONETARY`` for currency related functions,
      * ``LC_ALL``, and
      * ``LANG``
 
@@ -31,6 +31,7 @@ from babel.localedata import LocaleDataDict
 if TYPE_CHECKING:
     from typing_extensions import Literal
 
+LC_MONETARY = default_locale('LC_MONETARY')
 LC_NUMERIC = default_locale('LC_NUMERIC')
 
 
@@ -108,7 +109,7 @@ def normalize_currency(currency: str, locale: Locale | str | None = None) -> str
 def get_currency_name(
     currency: str,
     count: float | decimal.Decimal | None = None,
-    locale: Locale | str | None = LC_NUMERIC,
+    locale: Locale | str | None = LC_MONETARY,
 ) -> str:
     """Return the name used by the locale for the specified currency.
 
@@ -138,7 +139,7 @@ def get_currency_name(
     return loc.currencies.get(currency, currency)
 
 
-def get_currency_symbol(currency: str, locale: Locale | str | None = LC_NUMERIC) -> str:
+def get_currency_symbol(currency: str, locale: Locale | str | None = LC_MONETARY) -> str:
     """Return the symbol used by the locale for the specified currency.
 
     >>> get_currency_symbol('USD', locale='en_US')
@@ -167,7 +168,7 @@ def get_currency_precision(currency: str) -> int:
 def get_currency_unit_pattern(
     currency: str,
     count: float | decimal.Decimal | None = None,
-    locale: Locale | str | None = LC_NUMERIC,
+    locale: Locale | str | None = LC_MONETARY,
 ) -> str:
     """
     Return the unit pattern used for long display of a currency value
@@ -670,7 +671,7 @@ def format_currency(
     number: float | decimal.Decimal | str,
     currency: str,
     format: str | NumberPattern | None = None,
-    locale: Locale | str | None = LC_NUMERIC,
+    locale: Locale | str | None = LC_MONETARY,
     currency_digits: bool = True,
     format_type: Literal["name", "standard", "accounting"] = "standard",
     decimal_quantization: bool = True,
@@ -792,7 +793,7 @@ def _format_currency_long_name(
     number: float | decimal.Decimal | str,
     currency: str,
     format: str | NumberPattern | None = None,
-    locale: Locale | str | None = LC_NUMERIC,
+    locale: Locale | str | None = LC_MONETARY,
     currency_digits: bool = True,
     format_type: Literal["name", "standard", "accounting"] = "standard",
     decimal_quantization: bool = True,
@@ -835,7 +836,7 @@ def format_compact_currency(
     currency: str,
     *,
     format_type: Literal["short"] = "short",
-    locale: Locale | str | None = LC_NUMERIC,
+    locale: Locale | str | None = LC_MONETARY,
     fraction_digits: int = 0,
     numbering_system: Literal["default"] | str = "latn",
 ) -> str:
