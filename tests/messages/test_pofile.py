@@ -505,6 +505,7 @@ msgstr "bar"
 
 
     def test_abort_invalid_po_file(self):
+        # right double quote missing on msgstr, continuation missing both double quotes
         invalid_po = '''
             msgctxt ""
             "{\"checksum\": 2148532640, \"cxt\": \"collector_thankyou\", \"id\": "
@@ -517,6 +518,7 @@ msgstr "bar"
             Pour toute question, veuillez communiquer avec Fulano  à nadie@blah.com
             "
         '''
+        # as above, but contains ascii-only characters
         invalid_po_2 = '''
             msgctxt ""
             "{\"checksum\": 2148532640, \"cxt\": \"collector_thankyou\", \"id\": "
@@ -529,25 +531,62 @@ msgstr "bar"
             Pour toute question, veuillez communiquer avec Fulano a fulano@blah.com
             "
             '''
-        # Catalog not created, throws Unicode Error
-        buf = StringIO(invalid_po)
-        output = pofile.read_po(buf, locale='fr', abort_invalid=False)
-        assert isinstance(output, Catalog)
+        # left double quote missing in msgid
+        invalid_po_3 = '''
+            msgid *A"
+            msgstr "B"
+        '''
+        # right double quote missing in msgstr
+        invalid_po_4 = '''
+            msgid "A"
+            msgstr "B*
+        '''
+        # right double quote missing in msgstr continuation
+        invalid_po_5 = '''
+            msgid "A"
+            msgstr ""
+            "*
+        '''
+        for incorrectly_delimited_po_string in (invalid_po, invalid_po_2, invalid_po_3, invalid_po_4, invalid_po_5):
+            buf = StringIO(incorrectly_delimited_po_string)
+            with pytest.raises(pofile.PoFileError):
+                pofile.read_po(buf, locale='fr', abort_invalid=True)
+            buf.seek(0)
+            output = pofile.read_po(buf, locale='fr', abort_invalid=False)
+            assert isinstance(output, Catalog)
 
-        # Catalog not created, throws PoFileError
-        buf = StringIO(invalid_po_2)
-        with pytest.raises(pofile.PoFileError):
-            pofile.read_po(buf, locale='fr', abort_invalid=True)
+    def test_invalid_msgstr_plural(self):
+        # msgstr plural broken
+        invalid_1 = '''
+        msgid "A"
+        msgstr[
+        '''
+        invalid_2 = '''
+        msgid "A"
+        msgstr[] "no index"
+        '''
+        invalid_3 = '''
+        msgid "A"
+        msgstr[bah] "index is not a number"
+        '''
+        # no content
+        invalid_4 = '''
+        msgid "A"
+        msgstr[0]
+        '''
+        # not correctly delimited
+        invalid_5 = '''
+        msgid "A"
+        msgstr[0] not delimited
+        '''
+        for incorrectly_plural in (invalid_1, invalid_2, invalid_3, invalid_4, invalid_5):
+            buf = StringIO(incorrectly_plural)
+            with pytest.raises(pofile.PoFileError):
+                pofile.read_po(buf, locale='fr', abort_invalid=True)
+            buf.seek(0)
+            output = pofile.read_po(buf, locale='fr', abort_invalid=False)
+            assert isinstance(output, Catalog)
 
-        # Catalog is created with warning, no abort
-        buf = StringIO(invalid_po_2)
-        output = pofile.read_po(buf, locale='fr', abort_invalid=False)
-        assert isinstance(output, Catalog)
-
-        # Catalog not created, aborted with PoFileError
-        buf = StringIO(invalid_po_2)
-        with pytest.raises(pofile.PoFileError):
-            pofile.read_po(buf, locale='fr', abort_invalid=True)
 
     def test_invalid_pofile_with_abort_flag(self):
         parser = pofile.PoFileParser(None, abort_invalid=True)
