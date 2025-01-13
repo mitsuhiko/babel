@@ -447,6 +447,19 @@ _(u'Hello, {0} and {1}!', _(u'Heungsub'),
         assert messages[7][2] == 'Armin'
         assert messages[7][3] == []
 
+    def test_dotted_keywords(self):
+        buf = BytesIO(b"""\
+msg0 = self.gettext('Hello there')
+msg1 = self.gettext('Thanks {user}', name=self.gettext('User'))
+msg3 = self.gettext('Can use {both}', both=gettext('gettexts'))
+""")
+        messages = list(extract.extract_python(buf, ('self.gettext', 'gettext'), [], {}))
+        assert messages[0] == (1, 'self.gettext', 'Hello there', [])
+        assert messages[1] == (2, 'self.gettext', ('Thanks {user}', None), [])
+        assert messages[2] == (2, 'self.gettext', 'User', [])
+        assert messages[3] == (3, 'self.gettext', ('Can use {both}', None), [])
+        assert messages[4] == (3, 'gettext', 'gettexts', [])
+
 
 class ExtractTestCase(unittest.TestCase):
 

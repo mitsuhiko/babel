@@ -66,6 +66,7 @@ setup(
         # higher.
         # Python 3.9 and later include zoneinfo which replaces pytz
         'pytz>=2015.7; python_version<"3.9"',
+        'more-itertools'
     ],
     extras_require={
         'dev': [

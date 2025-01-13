@@ -36,6 +36,8 @@ from textwrap import dedent
 from tokenize import COMMENT, NAME, NL, OP, STRING, generate_tokens
 from typing import TYPE_CHECKING, Any
 
+from more_itertools import peekable
+
 from babel.messages._compat import find_entrypoints
 from babel.util import parse_encoding, parse_future_flags, pathmatch
 
@@ -515,11 +517,34 @@ def extract_python(
     future_flags = parse_future_flags(fileobj, encoding)
     next_line = lambda: fileobj.readline().decode(encoding)
 
-    tokens = generate_tokens(next_line)
+    tokens = peekable(generate_tokens(next_line))
 
     # Current prefix of a Python 3.12 (PEP 701) f-string, or None if we're not
     # currently parsing one.
     current_fstring_start = None
+
+    def peek_dotted_name(name) -> str:
+        """Used to peek ahead in the token stream to get a dotted name, if possible"""
+
+        nonlocal tokens
+
+        prev_tok = NAME
+
+        while True:
+            tok, value, *_ = tokens.peek()
+
+            if prev_tok == NAME and tok == OP and value == '.':
+                name += '.'
+                next(tokens)
+            elif tok == NAME:
+                name += value
+                next(tokens)
+            else:
+                break
+
+            prev_tok = tok
+
+        return name
 
     for tok, value, (lineno, _), _, _ in tokens:
         if call_stack == -1 and tok == NAME and value in ('def', 'class'):
@@ -552,7 +577,12 @@ def extract_python(
                     translator_comments.append((lineno, value))
                     break
         elif funcname and call_stack == 0:
-            nested = (tok == NAME and value in keywords)
+            if tok == NAME:
+                maybe_funcname: str | None = peek_dotted_name(value)
+            else:
+                maybe_funcname = None
+
+            nested = (maybe_funcname and maybe_funcname in keywords)
             if (tok == OP and value == ')') or nested:
                 if buf:
                     messages.append(''.join(buf))
@@ -576,7 +606,7 @@ def extract_python(
                 translator_comments = []
                 in_translator_comments = False
                 if nested:
-                    funcname = value
+                    funcname = maybe_funcname
             elif tok == STRING:
                 val = _parse_python_string(value, encoding, future_flags)
                 if val is not None:
@@ -619,8 +649,11 @@ def extract_python(
             call_stack -= 1
         elif funcname and call_stack == -1:
             funcname = None
-        elif tok == NAME and value in keywords:
-            funcname = value
+        elif tok == NAME:
+            peeked_name = peek_dotted_name(value)
+
+            if peeked_name in keywords:
+                funcname = peeked_name
 
         if (current_fstring_start is not None
             and tok not in {FSTRING_START, FSTRING_MIDDLE}
