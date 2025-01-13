@@ -20,13 +20,18 @@ import shutil
 import sys
 import tempfile
 import warnings
+from collections.abc import Generator
 from configparser import RawConfigParser
+from dataclasses import dataclass
 from io import StringIO
+from pathlib import Path
+from string import Formatter
 from typing import BinaryIO, Iterable, Literal
 
 from babel import Locale, localedata
 from babel import __version__ as VERSION
 from babel.core import UnknownLocaleError
+from babel.messages import Message
 from babel.messages.catalog import DEFAULT_HEADER, Catalog
 from babel.messages.extract import (
     DEFAULT_KEYWORDS,
@@ -852,6 +857,127 @@ class UpdateCatalog(CommandMixin):
             return
 
 
+class LintCatalog(CommandMixin):
+    description = 'check message catalogs for common problems'
+    user_options = [
+        ('input-paths=', None,
+        'files or directories that should be checked. Separate multiple '
+        'files or directories with commas(,)'),  # TODO: Support repetition of this argument
+    ]
+    as_args = 'input-paths'
+
+    @dataclass(frozen=True)
+    class MessagePair:
+        original: str
+        translated: str
+        plural_number: int | None = None
+
+    def initialize_options(self):
+        self.input_paths: list[str] = None
+
+    def finalize_options(self):
+        if not self.input_paths:
+            raise OptionError("no input files or directories specified")
+
+    def run(self):
+        for input_path in self.input_paths:
+            path = Path(input_path)
+            if path.is_dir():
+                self._lint_directory(path)
+            else:
+                self._lint_file(path)
+
+    def _lint_directory(self, directory: Path) -> None:
+        for path in Path(directory).rglob('*.po'):
+            if path.is_file():
+                self._lint_file(path)
+
+    def _lint_file(self, path: Path) -> None:
+        with open(path, 'rb') as f:
+            catalog = read_po(f)
+
+        for msg in catalog:
+            if not msg.id:
+                continue
+
+            all_strings = msg.string if isinstance(msg.string, tuple) else (msg.string,)
+            if not any(all_strings):  # Not translated, skip.
+                continue
+
+            for msg_pair in self._iter_msg_pairs(msg, num_plurals=catalog.num_plurals):
+                orig_placeholders = self._extract_placeholders(msg_pair.original)
+                trans_placeholders = self._extract_placeholders(msg_pair.translated)
+                if orig_placeholders != trans_placeholders:
+                    formatted = self._format_message(orig_placeholders, trans_placeholders, msg_pair.plural_number)
+                    print(f'{path}:{msg.lineno}: {formatted}')
+
+    def _format_message(
+            self,
+            original_placeholders: set[str],
+            translated_placeholders: set[str],
+            plural_number: int | None,
+    ) -> str:
+        def _sort_and_format(placeholders: set[str]) -> str:
+            return ', '.join(sorted(placeholders))
+
+        msgid = 'msgid' if plural_number is None else 'msgid_plural'
+        msgstr = 'msgstr' if plural_number is None else f'msgstr[{plural_number}]'
+
+        msg = f'placeholders in {msgid} differ from placeholders in {msgstr}:\n'
+        if only_in_msgid := original_placeholders - translated_placeholders:
+            formatted = _sort_and_format(only_in_msgid)
+            msg += f'\tplaceholders in {msgid} but missing in {msgstr}: {formatted}'
+        if only_in_msgstr := translated_placeholders - original_placeholders:
+            formatted = _sort_and_format(only_in_msgstr)
+            msg += f'\n\tplaceholders in {msgstr} but missing in {msgid}: {formatted}'
+        return msg
+
+    def _iter_msg_pairs(self, msg: Message, *, num_plurals: int) -> Generator[LintCatalog.MessagePair, None, None]:
+        """Iterate over all (original, translated) message pairs in a given message.
+
+        For singular messages, this produces a single pair (original, translated).
+        For plural messages, this produces a pair for each plural form. For example,
+        for a language with 4 plural forms, this will generate:
+
+            (orig_singular, trans_singular),
+            (orig_plural,   trans_plural_1),
+            (orig_plural,   trans_plural_2),
+            (orig_plural,   trans_plural_3)
+
+        For languages with nplurals=1, this generates a single pair:
+
+            (orig_plural, trans_plural)
+        """
+        if not msg.pluralizable:
+            yield self.MessagePair(msg.id, msg.string)
+        elif num_plurals == 1:
+            # Pluralized messages with nplurals=1 should be compared against the 'msgid_plural'.
+            yield self.MessagePair(msg.id[1], msg.string[0], plural_number=0)
+        else:
+            # Pluralized messages with nplurals>1 should compare 'msgstr[0]' against the singular and
+            # any other 'msgstr[X]' against 'msgid_plural'.
+            yield self.MessagePair(msg.id[0], msg.string[0])
+            for i, string in enumerate(msg.string[1:], start=1):
+                yield self.MessagePair(msg.id[1], string, plural_number=i)
+
+    def _extract_placeholders(self, string: str) -> set[str]:
+        fmt = Formatter()
+        try:
+            parsed = list(fmt.parse(string))
+        except ValueError:
+            return set()
+        return {self._unparse_placeholder(field_name, conversion, format_spec)
+                for _, field_name, format_spec, conversion in parsed if field_name is not None}
+
+    def _unparse_placeholder(
+            self,
+            field_name: str,
+            conversion: str | None = None,
+            format_spec: str | None = None,
+    ) -> str:
+        return f'{{{field_name}{"!" + conversion if conversion else ""}{":" + format_spec if format_spec else ""}}}'
+
+
 class CommandLineInterface:
     """Command-line interface.
 
@@ -866,6 +992,7 @@ class CommandLineInterface:
         'extract': 'extract messages from source files and generate a POT file',
         'init': 'create new message catalogs from a POT file',
         'update': 'update existing message catalogs from a POT file',
+        'lint': 'check message catalogs for common problems',
     }
 
     command_classes = {
@@ -873,6 +1000,7 @@ class CommandLineInterface:
         'extract': ExtractMessages,
         'init': InitCatalog,
         'update': UpdateCatalog,
+        'lint': LintCatalog,
     }
 
     log = None  # Replaced on instance level

@@ -27,7 +27,7 @@ from freezegun import freeze_time
 
 from babel import __version__ as VERSION
 from babel.dates import format_datetime
-from babel.messages import Catalog, extract, frontend
+from babel.messages import Catalog, Message, extract, frontend
 from babel.messages.frontend import (
     BaseError,
     CommandLineInterface,
@@ -713,6 +713,120 @@ msgstr[1] ""
         with open(po_file) as f:
             actual_content = f.read()
         assert expected_content == actual_content
+
+
+MessagePair = frontend.LintCatalog.MessagePair
+
+class TestLintCatalog:
+
+    def test_no_directory_or_input_file_specified(self):
+        cmd = frontend.LintCatalog()
+        with pytest.raises(OptionError):
+            cmd.finalize_options()
+
+    @pytest.mark.parametrize(['string', 'expected'], [
+        ('', set()),
+        ('{', set()),
+        ('}', set()),
+        ('{}', {'{}'}),
+        ('{} {', set()),
+        ('{{}}', set()),
+        ('{foo}', {'{foo}'}),
+        ('{foo} {bar}', {'{foo}', '{bar}'}),
+        ('{foo:.2f}', {'{foo:.2f}'}),
+        ('{foo!r:.2f=}', {'{foo!r:.2f=}'}),
+    ])
+    def test__extract_placeholders(self, string, expected):
+        cmd = frontend.LintCatalog()
+        assert cmd._extract_placeholders(string) == expected
+
+    @pytest.mark.parametrize(['num_plurals', 'message', 'expected'], [
+        (3, ('foo', 'bar'), [MessagePair('foo', 'bar')]),
+        (3, (['foo', 'foos'], ['bar', 'bars 1', 'bars 2']), [
+            MessagePair('foo', 'bar'),
+            MessagePair('foos', 'bars 1', plural_number=1),
+            MessagePair('foos', 'bars 2', plural_number=2),
+        ]),
+        (1, (['foo', 'foos'], ['bars']), [MessagePair('foos', 'bars', plural_number=0)]),
+    ])
+    def test__iter_msg_pairs(self, num_plurals, message, expected):
+        cmd = frontend.LintCatalog()
+        msg = Message(id=message[0], string=message[1])
+        msg_pairs = list(cmd._iter_msg_pairs(msg, num_plurals=num_plurals))
+        assert msg_pairs == expected
+
+    def test_lint_singular(self, tmp_path, capsys):
+        cmd = frontend.LintCatalog()
+        po_file = tmp_path / 'messages.po'
+        cmd.input_paths = [po_file]
+        po_file.write_text(r"""
+msgid "{foo}"
+msgstr "{bar} {baz}"
+
+msgid "{foo} {bar}"
+msgstr "{bar} {baz}"
+""")
+
+        cmd.run()
+        captured = capsys.readouterr()
+        assert captured.err == ''
+        assert captured.out == (f"{po_file}:2: placeholders in msgid differ from placeholders in msgstr:\n"
+                                "\tplaceholders in msgid but missing in msgstr: {foo}\n"
+                                "\tplaceholders in msgstr but missing in msgid: {bar}, {baz}\n"
+                                f"{po_file}:5: placeholders in msgid differ from placeholders in msgstr:\n"
+                                "\tplaceholders in msgid but missing in msgstr: {foo}\n"
+                                "\tplaceholders in msgstr but missing in msgid: {baz}\n")
+
+    def test_lint_many_plurals(self, tmp_path, capsys):
+        cmd = frontend.LintCatalog()
+        po_file = tmp_path / 'lint.po'
+        cmd.input_paths = [po_file]
+        po_file.write_text(r"""
+msgid ""
+msgstr ""
+"Language: cs_CZ\n"
+
+msgid "You have {count} new message."
+msgid_plural "You have {count} new messages."
+msgstr[0] "You have {foo} new message."
+msgstr[1] "You have {bar} new messages."
+msgstr[2] "You have {baz} new messages."
+""")
+
+        cmd.run()
+        captured = capsys.readouterr()
+        assert captured.err == ''
+        assert captured.out == (f"{po_file}:6: placeholders in msgid differ from placeholders in msgstr:\n"
+                                "\tplaceholders in msgid but missing in msgstr: {count}\n"
+                                "\tplaceholders in msgstr but missing in msgid: {foo}\n"
+                                f"{po_file}:6: placeholders in msgid_plural differ from placeholders in msgstr[1]:\n"
+                                "\tplaceholders in msgid_plural but missing in msgstr[1]: {count}\n"
+                                "\tplaceholders in msgstr[1] but missing in msgid_plural: {bar}\n"
+                                f"{po_file}:6: placeholders in msgid_plural differ from placeholders in msgstr[2]:\n"
+                                "\tplaceholders in msgid_plural but missing in msgstr[2]: {count}\n"
+                                "\tplaceholders in msgstr[2] but missing in msgid_plural: {baz}\n")
+
+    def test_lint_one_plural(self, tmp_path, capsys):
+        cmd = frontend.LintCatalog()
+        po_file = tmp_path / 'lint.po'
+        cmd.input_paths = [po_file]
+        po_file.write_text(r"""
+msgid ""
+msgstr ""
+"Language: zh_TW\n"
+
+msgid "You have {count} new message."
+msgid_plural "You have {count} new messages."
+msgstr[0] "You have {foo} new messages."
+""")
+
+        cmd.run()
+        captured = capsys.readouterr()
+        assert captured.err == ''
+        assert captured.out == (f"{po_file}:6: placeholders in msgid_plural differ from placeholders in msgstr[0]:\n"
+                                "\tplaceholders in msgid_plural but missing in msgstr[0]: {count}\n"
+                                "\tplaceholders in msgstr[0] but missing in msgid_plural: {foo}\n")
+
 
 
 class CommandLineInterfaceTestCase(unittest.TestCase):
