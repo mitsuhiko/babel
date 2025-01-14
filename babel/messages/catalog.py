@@ -307,6 +307,7 @@ class Catalog:
         language_team: str | None = None,
         charset: str | None = None,
         fuzzy: bool = True,
+        is_template: bool = False,
     ) -> None:
         """Initialize the catalog object.
 
@@ -361,6 +362,8 @@ class Catalog:
         self.obsolete: dict[str | tuple[str, str], Message] = {}
         self._num_plurals = None
         self._plural_expr = None
+
+        self._is_template = is_template
 
     def _set_locale(self, locale: Locale | str | None) -> None:
         if locale is None:
@@ -484,7 +487,7 @@ class Catalog:
                 self.msgid_bugs_address = value
             elif name == 'last-translator':
                 self.last_translator = value
-            elif name == 'language':
+            elif name == 'language' and not self._is_template:
                 value = value.replace('-', '_')
                 # The `or None` makes sure that the locale is set to None
                 # if the header's value is an empty string, which is what
