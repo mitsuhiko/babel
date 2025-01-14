@@ -20,6 +20,7 @@ import shutil
 import sys
 import tempfile
 import warnings
+from collections import OrderedDict, defaultdict
 from configparser import RawConfigParser
 from io import StringIO
 from typing import BinaryIO, Iterable, Literal
@@ -852,6 +853,318 @@ class UpdateCatalog(CommandMixin):
             return
 
 
+class ConcatenationCatalog(CommandMixin):
+    description = 'concatenates and merges the specified PO files'
+    user_options = [
+        ('input-files', None, 'input files'),
+        ('files-from=', 'f', 'get list of input files from FILE'),
+        ('directory=', 'D', 'add DIRECTORY to list for input files search'
+                            'If input file is -, standard input is read.'),
+        ('output-file=', 'o', 'write output to specified file'),
+        ('less-than=', '<', 'print messages with less than this many'
+                            'definitions, defaults to infinite if not set'),
+        ('more-than=', '>', 'print messages with more than this many'
+                            'definitions, defaults to 0 if not set'),
+        ('unique', 'u', 'shorthand for --less-than=2, requests'
+                        'that only unique messages be printed'),
+        ('properties-input', 'P', 'input files are in Java .properties syntax'),
+        ('stringtable-input', None, 'input files are in NeXTstep/GNUstep .strings syntax'),
+        ('to-code=','t', 'encoding for output'),
+        ('use-first', None, 'use first available translation for each'
+                            'message, don\'t merge several translations'),
+        ('lang=', None, 'set 'Language' field in the header entry'),
+        ('color=', None, 'use colors and other text attributes always'),
+        ('style=', None, 'specify CSS style rule file for --color'),
+        ('no-escape', 'e', 'do not use C escapes in output (default)'),
+        ('escape', 'E', 'use C escapes in output, no extended chars'),
+        ('force-po', None, 'write PO file even if empty'),
+        ('indent', 'i', 'write the .po file using indented style'),
+        ('no-location', None, 'do not write \'#: filename:line\' lines'),
+        ('strict', None, 'write out strict Uniforum conforming .po file'),
+        ('properties-output', None, 'write out a Java .properties file'),
+        ('stringtable-output', None, 'write out a NeXTstep/GNUstep .strings file'),
+        ('width=', 'w', 'set output page width'),
+        ('no-wrap', None, 'do not break long message lines, longer than'
+                          'the output page width, into several lines'),
+        ('sort-output', 's', 'generate sorted output'),
+        ('sort-by-file', 'F', 'sort output by file location'),
+    ]
+
+    as_args='input-files'
+
+    boolean_options = [
+        'unique',
+        'properties-input',
+        'stringtable-input',
+        'no-escape',
+        'escape',
+        'force-po',
+        'indent',
+        'no-location',
+        'strict',
+        'properties-output',
+        'stringtable-output',
+        'no-wrap',
+        'sort-output',
+        'sort-by-file',
+    ]
+
+    option_choices = {
+        'color': ('always', 'never', 'auto', 'html'),
+    }
+
+    def initialize_options(self):
+        self.input_files = None #
+        self.files_from = None
+        self.directory = None
+        self.output_file = None #
+        self.less_than = None #
+        self.more_than = 0 #
+        self.unique = False #
+        self.properties_input = None
+        self.stringtable_input = None
+        self.to_code = None
+        # the first translation is always used temporarily
+        self.use_first = True #~
+        self.lang = None
+        self.color = None
+        self.style = None
+        self.no_escape = None
+        self.escape = None
+        self.force_po = None
+        self.indent = None
+        self.no_location = None #
+        self.strict = None
+        self.properties_output = None
+        self.stringtable_output = None
+        self.width = None #
+        self.no_wrap = None #
+        self.sort_output = False #
+        self.sort_by_file = False #
+
+    def finalize_options(self):
+        if not self.input_files:
+            raise OptionError('you must specify the input files')
+        if not self.output_file:
+            raise OptionError('you must specify the output file')
+
+        if self.no_wrap and self.width:
+            raise OptionError("'--no-wrap' and '--width' are mutually exclusive")
+        if not self.no_wrap and not self.width:
+            self.width = 76
+        elif self.width is not None:
+            self.width = int(self.width)
+
+        if self.more_than is None:
+            self.more_than = 0
+        else:
+            self.more_than = int(self.more_than)
+        if self.less_than is not None:
+            self.less_than = int(self.less_than)
+        if self.unique:
+            self.less_than = 2
+
+    def _prepare(self):
+        self.message_count = defaultdict(int)
+
+        for filename in self.input_files:
+            with open(filename, 'r') as pofile:
+                template = read_po(pofile)
+            for message in template:
+                self.message_count[message.id] += 1
+
+    def run(self):
+        catalog = Catalog(fuzzy=False)
+        self._prepare()
+
+        for filename in self.input_files:
+            with open(filename, 'r') as pofile:
+                template = read_po(pofile)
+                if catalog.locale is None:
+                    catalog.locale = template.locale
+
+                for message in template:
+                    if not message.id:
+                        continue
+
+                    if message.id in catalog and catalog[message.id].string != message.string and not self.use_first:
+                        raise NotImplementedError()
+
+                    message_count = self.message_count[message.id]
+                    if message_count > self.more_than and (self.less_than is None or message_count < self.less_than):
+                        catalog[message.id] = message
+
+        catalog.fuzzy = any(message.fuzzy for message in catalog)
+        with open(self.output_file, 'wb') as outfile:
+            write_po(
+                outfile,
+                catalog,
+                width=self.width,
+                sort_by_file=self.sort_by_file,
+                sort_output=self.sort_output,
+                no_location=self.no_location,
+            )
+
+
+class MergeCatalog(CommandMixin):
+    description='combines two Uniforum-style PO files into one'
+    user_options=[
+        ('input-files', None, 'def.po ref.pot'),
+        ('directory=', 'D', 'add DIRECTORY to list for input files search'),
+        ('compendium=', 'C', 'additional library of message translations, may be specified more than once'),
+        ('compendium-overwrite', '', 'overwrite mode of compendium'),
+        ('no-compendium-comment', '', ''),
+        ('update', 'U', 'pdate def.po, do nothing if def.po already up to date'),
+        ('output-file=', 'o', 'write output to specified file, the results are written'
+                              'to standard output if no output file is specified'),
+        ('backup', None, 'make a backup of def.po'),
+        ('suffix=', None, 'override the usual backup suffix'),
+        ('multi-domain', 'm', 'apply ref.pot to each of the domains in def.po'),
+        ('for-msgfmt', None, 'produce output for 'msgfmt', not for a translator'),
+        ('no-fuzzy-matching', 'N', 'do not use fuzzy matching'),
+        ('previous', None, 'keep previous msgids of translated messages'),
+        ('properties-input', 'P', 'input files are in Java .properties syntax'),
+        ('stringtable-input', None, 'input files are in NeXTstep/GNUstep .strings syntax'),
+        ('lang=', None, 'set 'Language' field in the header entry'),
+        ('color=', None, 'use colors and other text attributes always'),
+        ('style=', None, 'specify CSS style rule file for --color'),
+        ('no-escape', 'e', 'do not use C escapes in output (default)'),
+        ('escape', 'E', 'use C escapes in output, no extended chars'),
+        ('force-po', None, 'write PO file even if empty'),
+        ('indent', 'i', 'indented output style'),
+        ('no-location', None, 'suppress \'#: filename:line\' lines'),
+        ('strict', None, 'strict Uniforum output style'),
+        ('properties-output', None, 'write out a Java .properties file'),
+        ('stringtable-output', None, 'write out a NeXTstep/GNUstep .strings file'),
+        ('width=', 'w', 'set output page width'),
+        ('no-wrap', None, 'do not break long message lines, longer'
+                          'than the output page width, into several lines'),
+        ('sort-output', 's', 'generate sorted output'),
+        ('sort-by-file', 'F', 'sort output by file location'),
+    ]
+
+    as_args='input-files'
+
+    boolean_options = [
+        'update',
+        'multi-domain',
+        'for-msgfmt',
+        'no-fuzzy-matching',
+        'previous'
+        'properties-input',
+        'stringtable-input',
+        'no-escape',
+        'escape',
+        'force-po',
+        'indent',
+        'no-location',
+        'strict',
+        'properties-output',
+        'stringtable-output',
+        'no-wrap',
+        'sort-output',
+        'sort-by-file',
+        'compendium-overwrite',
+        'backup',
+        'no-compendium-comment',
+    ]
+
+    option_choices = {
+        'color': ('always', 'never', 'auto', 'html'),
+    }
+
+    def initialize_options(self):
+        self.input_files = None #
+        self.directory = None
+
+        self.compendium = None #~
+        self.compendium_overwrite = False #
+        self.no_compendium_comment = None #
+
+        self.update = None #
+        self.output_file = None #
+        self.backup = False #
+        self.suffix = '~' #
+        self.multi_domain = None
+        self.for_msgfmt = None
+        self.no_fuzzy_matching = None #
+        self.previous = None
+        self.properties_input = None
+        self.stringtable_input = None
+        self.lang = None
+        self.color = None
+        self.style = None
+        self.no_escape = None
+        self.escape = None
+        self.force_po = None
+        self.indent = None
+        self.no_location = None #
+        self.strict = None
+        self.properties_output = None
+        self.stringtable_output = None
+        self.width = None #
+        self.no_wrap = None #
+        self.sort_output = False #
+        self.sort_by_file = False #
+
+    def finalize_options(self):
+        if not self.input_files or len(self.input_files) != 2:
+            raise OptionError('must be two po files')
+        if not self.output_file and not self.update:
+            raise OptionError('you must specify the output file or update existing')
+
+        if self.no_wrap and self.width:
+            raise OptionError("'--no-wrap' and '--width' are mutually exclusive")
+        if not self.no_wrap and not self.width:
+            self.width = 76
+        elif self.width is not None:
+            self.width = int(self.width)
+
+    def run(self):
+        def_file, ref_file = self.input_files
+
+        if self.update and self.backup:
+            shutil.copy(def_file, def_file + self.suffix)
+
+        with open(def_file, 'r') as pofile:
+            catalog = read_po(pofile)
+        with open(ref_file, 'r') as pofile:
+            ref_catalog = read_po(pofile)
+        catalog.update(
+            ref_catalog,
+            no_fuzzy_matching=self.no_fuzzy_matching
+        )
+
+        if self.compendium:
+            with open(self.compendium, 'r') as pofile:
+                compendium_catalog = read_po(pofile)
+
+            for message in compendium_catalog:
+                current = catalog[message.id]
+                if message.id in catalog and (not current.string or current.fuzzy or self.compendium_overwrite):
+                    if self.compendium_overwrite and not current.fuzzy and current.string:
+                        catalog.obsolete[message.id] = current.clone()
+
+                    current.string = message.string
+                    if current.fuzzy:
+                        current.flags.remove('fuzzy')
+
+                    if not self.no_compendium_comment:
+                        current.auto_comments.append(self.compendium)
+
+        catalog.fuzzy = any(message.fuzzy for message in catalog)
+        output_path = def_file if self.update else self.output_file
+        with open(output_path, 'wb') as outfile:
+            write_po(
+                outfile,
+                catalog,
+                no_location=self.no_location,
+                width=self.width,
+                sort_by_file=self.sort_by_file,
+                sort_output=self.sort_output,
+            )
+
+
 class CommandLineInterface:
     """Command-line interface.
 
@@ -866,6 +1179,8 @@ class CommandLineInterface:
         'extract': 'extract messages from source files and generate a POT file',
         'init': 'create new message catalogs from a POT file',
         'update': 'update existing message catalogs from a POT file',
+        'concat': 'concatenates and merges the specified PO files',
+        'merge': 'combines two Uniforum-style PO files into one',
     }
 
     command_classes = {
@@ -873,6 +1188,8 @@ class CommandLineInterface:
         'extract': ExtractMessages,
         'init': InitCatalog,
         'update': UpdateCatalog,
+        'concat': ConcatenationCatalog,
+        'merge': MergeCatalog,
     }
 
     log = None  # Replaced on instance level
