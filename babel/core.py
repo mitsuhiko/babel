@@ -1089,7 +1089,10 @@ class Locale:
         return self._data['unit_display_names']
 
 
-def default_locale(category: str | None = None, aliases: Mapping[str, str] = LOCALE_ALIASES) -> str | None:
+def default_locale(
+    category: str | tuple[str, ...] | list[str] | None = None,
+    aliases: Mapping[str, str] = LOCALE_ALIASES,
+) -> str | None:
     """Returns the system default locale for a given category, based on
     environment variables.
 
@@ -1113,11 +1116,20 @@ def default_locale(category: str | None = None, aliases: Mapping[str, str] = LOC
     - ``LC_CTYPE``
     - ``LANG``
 
-    :param category: one of the ``LC_XXX`` environment variable names
+    :param category: one or more of the ``LC_XXX`` environment variable names
     :param aliases: a dictionary of aliases for locale identifiers
     """
-    varnames = (category, 'LANGUAGE', 'LC_ALL', 'LC_CTYPE', 'LANG')
-    for name in filter(None, varnames):
+
+    varnames = ('LANGUAGE', 'LC_ALL', 'LC_CTYPE', 'LANG')
+    if category:
+        if isinstance(category, str):
+            varnames = (category, *varnames)
+        elif isinstance(category, (list, tuple)):
+            varnames = (*category, *varnames)
+        else:
+            raise TypeError(f"Invalid type for category: {category!r}")
+
+    for name in varnames:
         locale = os.getenv(name)
         if locale:
             if name == 'LANGUAGE' and ':' in locale:

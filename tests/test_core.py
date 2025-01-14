@@ -277,6 +277,22 @@ def test_default_locale(monkeypatch):
         assert default_locale() == 'en_US_POSIX'
 
 
+def test_default_locale_multiple_args(monkeypatch):
+    for name in ['LANGUAGE', 'LC_ALL', 'LC_CTYPE', 'LC_MESSAGES', 'LC_MONETARY', 'LC_NUMERIC']:
+        monkeypatch.setenv(name, '')
+    monkeypatch.setenv('LANG', 'en_US')
+    assert default_locale(('LC_MONETARY', 'LC_NUMERIC')) == 'en_US'  # No LC_MONETARY or LC_NUMERIC set
+    monkeypatch.setenv('LC_NUMERIC', 'fr_FR.UTF-8')
+    assert default_locale(('LC_MONETARY', 'LC_NUMERIC')) == 'fr_FR'  # LC_NUMERIC set
+    monkeypatch.setenv('LC_MONETARY', 'fi_FI.UTF-8')
+    assert default_locale(('LC_MONETARY', 'LC_NUMERIC')) == 'fi_FI'  # LC_MONETARY set, it takes precedence
+
+
+def test_default_locale_bad_arg():
+    with pytest.raises(TypeError):
+        default_locale(42)
+
+
 def test_negotiate_locale():
     assert (core.negotiate_locale(['de_DE', 'en_US'], ['de_DE', 'de_AT']) ==
             'de_DE')
