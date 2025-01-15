@@ -39,6 +39,24 @@ class MessageTestCase(unittest.TestCase):
         assert catalog.PYTHON_FORMAT.search('foo %(name)*.*f')
         assert catalog.PYTHON_FORMAT.search('foo %()s')
 
+    def test_python_brace_format(self):
+        assert not catalog._has_python_brace_format('')
+        assert not catalog._has_python_brace_format('foo')
+        assert not catalog._has_python_brace_format('{')
+        assert not catalog._has_python_brace_format('}')
+        assert not catalog._has_python_brace_format('{} {')
+        assert not catalog._has_python_brace_format('{{}}')
+        assert catalog._has_python_brace_format('{}')
+        assert catalog._has_python_brace_format('foo {name}')
+        assert catalog._has_python_brace_format('foo {name!s}')
+        assert catalog._has_python_brace_format('foo {name!r}')
+        assert catalog._has_python_brace_format('foo {name!a}')
+        assert catalog._has_python_brace_format('foo {name!r:10}')
+        assert catalog._has_python_brace_format('foo {name!r:10.2}')
+        assert catalog._has_python_brace_format('foo {name!r:10.2f}')
+        assert catalog._has_python_brace_format('foo {name!r:10.2f} {name!r:10.2f}')
+        assert catalog._has_python_brace_format('foo {name!r:10.2f=}')
+
     def test_translator_comments(self):
         mess = catalog.Message('foo', user_comments=['Comment About `foo`'])
         assert mess.user_comments == ['Comment About `foo`']
@@ -342,8 +360,17 @@ def test_message_pluralizable():
 
 
 def test_message_python_format():
+    assert not catalog.Message('foo').python_format
+    assert not catalog.Message(('foo', 'foo')).python_format
     assert catalog.Message('foo %(name)s bar').python_format
     assert catalog.Message(('foo %(name)s', 'foo %(name)s')).python_format
+
+
+def test_message_python_brace_format():
+    assert not catalog.Message('foo').python_brace_format
+    assert not catalog.Message(('foo', 'foo')).python_brace_format
+    assert catalog.Message('foo {name} bar').python_brace_format
+    assert catalog.Message(('foo {name}', 'foo {name}')).python_brace_format
 
 
 def test_catalog():

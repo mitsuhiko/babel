@@ -16,6 +16,7 @@ from copy import copy
 from difflib import SequenceMatcher
 from email import message_from_string
 from heapq import nlargest
+from string import Formatter
 from typing import TYPE_CHECKING
 
 from babel import __version__ as VERSION
@@ -74,6 +75,25 @@ PYTHON_FORMAT = re.compile(r'''
         )
         ([diouxXeEfFgGcrs%])
 ''', re.VERBOSE)
+
+
+def _has_python_brace_format(string: str) -> bool:
+    if "{" not in string:
+        return False
+    fmt = Formatter()
+    try:
+        # `fmt.parse` returns 3-or-4-tuples of the form
+        # `(literal_text, field_name, format_spec, conversion)`;
+        # if `field_name` is set, this smells like brace format
+        field_name_seen = False
+        for t in fmt.parse(string):
+            if t[1] is not None:
+                field_name_seen = True
+                # We cannot break here, as we need to consume the whole string
+                # to ensure that it is a valid format string.
+    except ValueError:
+        return False
+    return field_name_seen
 
 
 def _parse_datetime_header(value: str) -> datetime.datetime:
@@ -147,6 +167,10 @@ class Message:
             self.flags.add('python-format')
         else:
             self.flags.discard('python-format')
+        if id and self.python_brace_format:
+            self.flags.add('python-brace-format')
+        else:
+            self.flags.discard('python-brace-format')
         self.auto_comments = list(distinct(auto_comments))
         self.user_comments = list(distinct(user_comments))
         if isinstance(previous_id, str):
@@ -258,6 +282,21 @@ class Message:
         if not isinstance(ids, (list, tuple)):
             ids = [ids]
         return any(PYTHON_FORMAT.search(id) for id in ids)
+
+    @property
+    def python_brace_format(self) -> bool:
+        """Whether the message contains Python f-string parameters.
+
+        >>> Message('Hello, {name}!').python_brace_format
+        True
+        >>> Message(('One apple', '{count} apples')).python_brace_format
+        True
+
+        :type:  `bool`"""
+        ids = self.id
+        if not isinstance(ids, (list, tuple)):
+            ids = [ids]
+        return any(_has_python_brace_format(id) for id in ids)
 
 
 class TranslationError(Exception):
