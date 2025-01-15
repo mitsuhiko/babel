@@ -485,19 +485,6 @@ def test_format_currency():
             == 'US$0,00')          # other
 
 
-def test_format_currency_with_none_locale_with_default(monkeypatch):
-    """Test that the default locale is used when locale is None."""
-    monkeypatch.setattr(numbers, "LC_NUMERIC", "fi_FI")
-    assert numbers.format_currency(0, "USD", locale=None) == "0,00\xa0$"
-
-
-def test_format_currency_with_none_locale(monkeypatch):
-    """Test that the API raises the "Empty locale identifier" error when locale is None, and the default is too."""
-    monkeypatch.setattr(numbers, "LC_NUMERIC", None)  # Pretend we couldn't find any locale when importing the module
-    with pytest.raises(TypeError, match="Empty"):
-        numbers.format_currency(0, "USD", locale=None)
-
-
 def test_format_currency_format_type():
     assert (numbers.format_currency(1099.98, 'USD', locale='en_US',
                                     format_type="standard")
@@ -867,3 +854,31 @@ def test_single_quotes_in_pattern():
     assert numbers.format_decimal(123, "'$'''0", locale='en') == "$'123"
 
     assert numbers.format_decimal(12, "'#'0 o''clock", locale='en') == "#12 o'clock"
+
+
+def test_format_currency_with_none_locale_with_default(monkeypatch):
+    """Test that the default locale is used when locale is None."""
+    monkeypatch.setattr(numbers, "LC_MONETARY", "fi_FI")
+    monkeypatch.setattr(numbers, "LC_NUMERIC", None)
+    assert numbers.format_currency(0, "USD", locale=None) == "0,00\xa0$"
+
+
+def test_format_currency_with_none_locale(monkeypatch):
+    """Test that the API raises the "Empty locale identifier" error when locale is None, and the default is too."""
+    monkeypatch.setattr(numbers, "LC_MONETARY", None)  # Pretend we couldn't find any locale when importing the module
+    with pytest.raises(TypeError, match="Empty"):
+        numbers.format_currency(0, "USD", locale=None)
+
+
+def test_format_decimal_with_none_locale_with_default(monkeypatch):
+    """Test that the default locale is used when locale is None."""
+    monkeypatch.setattr(numbers, "LC_NUMERIC", "fi_FI")
+    monkeypatch.setattr(numbers, "LC_MONETARY", None)
+    assert numbers.format_decimal("1.23", locale=None) == "1,23"
+
+
+def test_format_decimal_with_none_locale(monkeypatch):
+    """Test that the API raises the "Empty locale identifier" error when locale is None, and the default is too."""
+    monkeypatch.setattr(numbers, "LC_NUMERIC", None)  # Pretend we couldn't find any locale when importing the module
+    with pytest.raises(TypeError, match="Empty"):
+        numbers.format_decimal(0, locale=None)
